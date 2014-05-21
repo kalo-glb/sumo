@@ -1,7 +1,7 @@
 #include <Servo.h>
 #include <SumoBase.h>
 
-#define SERDEBUG NoDebug // SensorStateRead, SensorValueRead
+#define SERDEBUG PrintLnDataAge // NoDebug, SensorStateRead, SensorValueRead, PrintLnDataAge, bla
 
 Servo servor;
 Servo servol;
@@ -31,13 +31,13 @@ U8 detect_rear_center  = 1;
 U8 detect_rear_right   = 1;
 
 // Arrays of sensor detection state
-bool SensorData[SensorCount];
-bool SensorDataOld[SensorCount];
+bool OptSensorData[OptDataMaxAge][OptSensorCount];
+unsigned long OptDataAge[OptDataMaxAge];
+unsigned int i = 0;
 
 Boolean ReadSensors()
 {
     Boolean changeInSensorData = False;
-    unsigned int i = 0;
     
     f_right = analogRead(FRight); // white: >100, black:20<
     f_left  = analogRead(FLeft);  // white: >400, black:40<
@@ -52,36 +52,21 @@ Boolean ReadSensors()
     detect_rear_right   = digitalRead(rear_right);
     
     // set sensor detection state
-    SensorData[LnForLeft]   = detect_line_fl();
-    SensorData[LnBackLeft]  = detect_line_rl();
-    SensorData[LnBackRight] = detect_line_rr();
-    SensorData[LnForRight]  = detect_line_fr();
-    SensorData[OpForCenter] = ((0 == detect_front_center)? True : False);
-    SensorData[OpForLeft]   = ((0 == detect_front_left)? True : False);
-    SensorData[OpLeft]      = ((0 == detect_rear_left)? True : False);
-    SensorData[OpBack]      = ((0 == detect_rear_center)? True : False);
-    SensorData[OpRight]     = ((0 == detect_rear_right)? True : False);
-    SensorData[OpForRight]  = ((0 == detect_front_right)? True : False);
+    OptSensorData[0][LnForLeft]   = detect_line_fl();
+    OptSensorData[0][LnBackLeft]  = detect_line_rl();
+    OptSensorData[0][LnBackRight] = detect_line_rr();
+    OptSensorData[0][LnForRight]  = detect_line_fr();
     
-    for(i = 0; i < sizeof(SensorData); i++)
+    for(i = 0; i <= OptSensorCount; i++)
     {
-        if(SensorData[i] != SensorDataOld[i])
+        if(OptSensorData[0][i] != OptSensorData[1][i])
         {
             changeInSensorData = True;
             break;
         }
     }
     
-    // debug code
-    #if SERDEBUG == SensorStateRead
-    for(i = 0;i < (SensorCount - 1); i++)
-    {
-        Serial.print(SensorData[i]);
-        Serial.print(" ");
-    }
-    Serial.println(SensorData[i]);
-    #endif
-    
+    /*
     // debug code
     #if SERDEBUG == SensorValueRead
     Serial.print(f_right);
@@ -92,16 +77,34 @@ Boolean ReadSensors()
     Serial.print(" ");
     Serial.println(r_right);
     #endif
+    */
     
     return changeInSensorData;    
 }
 
-void CopyToOldSensorData()
+void AgeSensorData()
 {
-    for(i = 0; i < sizeof(SensorData); i++)
+    for(int j = (OptDataMaxAge - 1); j > 0; j--)
     {
-        SensorDataOld[i] = SensorData[i];
+        OptDataAge[j] = OptDataAge[j - 1];
+        for(i = 0; i < OptSensorCount; i++)
+        {
+            OptSensorData[j][i] = OptSensorData[j - 1][i];
+        }
     }
+    
+    OptDataAge[0] = millis();
+    
+    /*
+    #if SERDEBUG == PrintLnDataAge
+    for(i = 0; i < OptDataMaxAge; i++)
+    {
+        Serial.print(OptDataAge[i]);
+        Serial.print(' ');
+    }
+    Serial.println();
+    #endif
+    */
 }
 
 //----------------------------------------- Motors ----------------------------------------------
@@ -116,13 +119,15 @@ void SetMotorSpeed(U16 leftBig, U16 rightBig, U8 directionServo, U16 leftSmall, 
     push_rear_right.writeMicroseconds(rightSmall);
 }
 
-#define Forward()    SetMotorSpeed(2000, 1000, TurnForward,  1000, 2000)
-#define Back()       SetMotorSpeed(1000, 2000, TurnForward,  2000, 1000)
-#define SpinLeft()   SetMotorSpeed(1000, 1000, TurnLeft,     1000, 2000)
-#define SpinRight()  SetMotorSpeed(2000, 2000, TurnRight,    1000, 2000)
-#define ArkLeft()    SetMotorSpeed(2000, 1000, SemiTurnLeft, 1000, 2000)
-#define ArkRight()   SetMotorSpeed(2000, 1000, SemiTurnRight,1000, 2000)
-#define Stop()       SetMotorSpeed(1500, 1500, SemiTurnRight,1500, 1500)
+#define Forward()      SetMotorSpeed(2000, 1000, TurnForward,  1000, 2000)
+#define Back()         SetMotorSpeed(1000, 2000, TurnForward,  2000, 1000)
+#define SpinLeft()     SetMotorSpeed(1000, 1000, TurnLeft,     1000, 2000)
+#define SpinRight()    SetMotorSpeed(2000, 2000, TurnRight,    1000, 2000)
+#define ArkLeft()      SetMotorSpeed(2000, 1000, SemiTurnLeft, 1000, 2000)
+#define ArkRight()     SetMotorSpeed(2000, 1000, SemiTurnRight,1000, 2000)
+#define ArkBackLeft()  SetMotorSpeed(1000, 2000, SemiTurnLeft, 2000, 1000)
+#define ArkBackRight() SetMotorSpeed(1000, 2000, SemiTurnRight,2000, 1000)
+#define Stop()         SetMotorSpeed(1500, 1500, SemiTurnRight,1500, 1500)
 
 void ExcuteDecision(Decision decision)
 {
@@ -161,46 +166,55 @@ void ExcuteDecision(Decision decision)
 //----------------------------------------- Logic ----------------------------------------------
 
 //DecisionHistory decisionHistory;
-Decision decision = dNoDecision;
+Decision decision = dGoForward;
 DecisionPack* lastDecision;
 DecisionHistory history;
-unsigned long time = 0;
+unsigned long decisionTimeout = 0;
 
 Decision DecisionBasedOnLine()
 {
     Decision result = dNoDecision;
     // first level decision
-    if(False != SensorData[LnForLeft])
+    if(False != OptSensorData[0][LnForLeft])
     {
         result = dTurnRight;
     }
-    else if(False != SensorData[LnBackLeft])
+    else if(False != OptSensorData[0][LnBackLeft])
     {
         result = dTurnLeft;
     }
-    else if(False != SensorData[LnBackRight])
+    else if(False != OptSensorData[0][LnBackRight])
     {
         result = dTurnRight;
     }
-    else if(False != SensorData[LnForRight])
+    else if(False != OptSensorData[0][LnForRight])
     {
         result = dTurnLeft;
     }
-    else if((False != SensorData[LnBackRight]) && 
-            (False != SensorData[LnBackLeft]))
+    else if((False != OptSensorData[0][LnBackRight]) && 
+            (False != OptSensorData[0][LnBackLeft]))
     {
         result = dGoForward;
     }
-    else if((False != SensorData[LnForRight]) && 
-            (False != SensorData[LnForLeft]))
+    else if((False != OptSensorData[0][LnForRight]) && 
+            (False != OptSensorData[0][LnForLeft]))
     {
         result = dGoBack;
+    }
+    // decision based on old data aswell
+    else if((False != OptSensorData[0][LnBackRight]) && // for right old and back right
+            (False != OptSensorData[1][LnForRight]) && 
+            ((OptDataAge[0] - OptDataAge[1]) < 2000))
+    {
+        result = dArkLeft;
+        //Serial.println('a');
     }
     else
     {
         result = dGoForward;
     }
     
+    /*
     // the index of the history array always points to the next free cell
     lastDecision = GetDecision(1, &history);
     AddDecision(result, &history);
@@ -212,13 +226,20 @@ Decision DecisionBasedOnLine()
         switch(lastDecision->decision)
         {
         case dTurnLeft:
-            //if(SensorDataOld[
+            if(SensorDataOld[0][
         }
     }
     
     // AddDecisionToHistory(result, &decisionHistory);
+    */
+    Serial.println(result);
     
     return result;
+}
+
+void SetLnDecisionTimeout(unsigned int time)
+{
+    decisionTimeout = (millis() + time);
 }
 
 Decision DecisionBasedOnOponent()
@@ -233,11 +254,6 @@ void setup()
     turn_servo.attach(TurningServo);
     push_rear_left.attach(3);
     push_rear_right.attach(11);
-    
-    /*
-    servol.writeMicroseconds(1375); // sreda1 
-    servor.writeMicroseconds(1361); // sreda2
-    */
 
     push_rear_left.writeMicroseconds(1369);  // sreda1 
     push_rear_right.writeMicroseconds(1381); // sreda2
@@ -256,51 +272,19 @@ void setup()
     pinMode(RRight, INPUT);
     pinMode(FRight, INPUT);
     
-    memset((void *)&SensorData, 0, sizeof(SensorData));
-    memset((void *)&SensorData, 0, sizeof(SensorData));
-    memset((void *)&history, 0, sizeof(SensorData));
+    memset((void *)&OptSensorData, 0, sizeof(OptSensorData));
     
     //Debugging
-    #if SERDEBUG != NoDebug
     Serial.begin(9600);
-    #endif
 }
-
-/*
-void StartTimer(U32 *timerAddr, U32 timerDelay)
-{
-    *timerAddr = ((millis()) + timerDelay);
-}
-
-U8 IsTimerExpired(U32 timer)
-{
-    if((False != IsTimerStarted(timer)) && (timer < (millis())))
-    {
-        return True;
-    }
-    
-    return False;
-}
-
-U8 IsTimerStarted(U32 timerAddr)
-{
-    if(0 != timerAddr)
-    {
-        return True;
-    }
-    else
-    {
-        return False;
-    }
-}
-*/
 
 void loop()
 {
+    //delay(5);
     if(False != (ReadSensors()))
     {
         decision = DecisionBasedOnLine();
         ExcuteDecision(decision);
-        CopyToOldSensorData();
+        AgeSensorData();
     }
 }

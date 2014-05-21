@@ -1,0 +1,55 @@
+    //SensorData[0][OpForCenter] = ((0 == detect_front_center)? True : False);
+    //SensorData[0][OpForLeft]   = ((0 == detect_front_left)? True : False);
+    //SensorData[0][OpLeft]      = ((0 == detect_rear_left)? True : False);
+    //SensorData[0][OpBack]      = ((0 == detect_rear_center)? True : False);
+    //SensorData[0][OpRight]     = ((0 == detect_rear_right)? True : False);
+    //SensorData[0][OpForRight]  = ((0 == detect_front_right)? True : False);
+    
+        /*
+    // debug code
+    #if SERDEBUG == SensorStateRead
+    for(i = 0;i < (OptSensorCount - 1); i++)
+    {
+        Serial.print(OptSensorData[0][i]);
+        Serial.print(" ");
+    }
+    Serial.println(OptSensorData[0][i]);
+    #endif
+    
+    /*
+template<class T> 
+RollingArray<T>::RollingArray(unsigned int size)
+{
+    this.size = size;
+    this.values = new T[size];
+    this.index = 0;
+    // memset((void*)this.values, 0, sizeof(this.values));
+}
+
+template<class T> 
+void RollingArray<T>::AddValue(T val)
+{
+    this.values[this.index] = val;
+    this.index++;
+    this.index %= this.size;
+}
+
+template<class T> 
+T RollingArray<T>::GetValueAt(unsigned int index)
+{
+    index = this.index - index;
+    if(index < 0)
+    {
+        index = index + this.size;
+    }
+}
+
+template<class T> 
+RollingArray<T>::~RollingArray()
+{
+    delete[] this.values;
+    delete this.index;
+    delete this.size;
+}
+*/
+
